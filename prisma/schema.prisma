@@ -10,8 +10,8 @@ datasource db {
 model Usuario {
   id         Int      @id @default(autoincrement())
   email      String   @unique
-  senhaHash  String   @map("senha_hash")
-  createdAt  DateTime @default(now()) @map("created_at")
+  senha_hash String
+  created_at DateTime @default(now())
   
   contagens  Contagem[]
   
@@ -20,52 +20,55 @@ model Usuario {
 
 model Produto {
   id            Int      @id @default(autoincrement())
-  codigoProduto String   @unique @map("codigo_produto")
+  codigo_produto String   @unique
   descricao     String
-  createdAt     DateTime @default(now()) @map("created_at")
+  saldo_estoque Int      @default(0)
+  created_at    DateTime @default(now())
   
-  codigosBarras CodigoBarras[]
-  itensContados ItemContado[]
+  codigos_barras CodigoBarras[]
+  itens_contados ItemContado[]
   
   @@map("produtos")
 }
 
 model CodigoBarras {
-  codigoBarras String   @id @map("codigo_de_barras")
-  produtoId    Int      @map("produto_id")
-  createdAt    DateTime @default(now()) @map("created_at")
+  codigo_de_barras String   @id
+  produto_id       Int
+  created_at       DateTime @default(now())
   
-  produto       Produto       @relation(fields: [produtoId], references: [id], onDelete: Cascade)
-  itensContados ItemContado[]
+  produto        Produto       @relation(fields: [produto_id], references: [id], onDelete: Cascade)
+  itens_contados ItemContado[]
   
   @@map("codigos_de_barras")
 }
 
 model Contagem {
-  id           Int      @id @default(autoincrement())
-  usuarioId    Int      @map("usuario_id")
-  dataContagem DateTime @default(now()) @map("data_contagem")
-  status       String   @default("em_andamento")
-  observacoes  String?
+  id             Int      @id @default(autoincrement())
+  usuario_id     Int
+  data_contagem  DateTime @default(now())
+  local_estoque  String   @default("loja-1")
+  status         String   @default("em_andamento")
+  observacoes    String?
   
-  usuario       Usuario       @relation(fields: [usuarioId], references: [id])
-  itensContados ItemContado[]
+  usuario        Usuario       @relation(fields: [usuario_id], references: [id])
+  itens_contados ItemContado[]
   
   @@map("contagens")
 }
 
 model ItemContado {
-  id                Int      @id @default(autoincrement())
-  contagemId        Int      @map("contagem_id")
-  produtoId         Int      @map("produto_id")
-  codigoBarrasId    String   @map("codigo_de_barras") // nome do campo escalar (chave estrangeira)
-  quantidadeContada Int      @map("quantidade_contada")
-  dataHora          DateTime @default(now()) @map("data_hora")
+  id                 Int      @id @default(autoincrement())
+  contagem_id        Int
+  produto_id         Int
+  codigo_de_barras   String
+  quantidade_contada Int
+  saldo_estoque      Int
+  total              Int
+  data_hora          DateTime @default(now())
   
-  contagem     Contagem     @relation(fields: [contagemId], references: [id], onDelete: Cascade)
-  produto      Produto      @relation(fields: [produtoId], references: [id])
-  codigoBarras CodigoBarras @relation(fields: [codigoBarrasId], references: [codigoBarras]) // campo relacional
-
+  contagem       Contagem     @relation(fields: [contagem_id], references: [id], onDelete: Cascade)
+  produto        Produto      @relation(fields: [produto_id], references: [id])
+  codigo_barras  CodigoBarras @relation(fields: [codigo_de_barras], references: [codigo_de_barras])
+  
   @@map("itens_contados")
 }
-

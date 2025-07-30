@@ -1,28 +1,35 @@
 import { type NextRequest, NextResponse } from "next/server"
 import bcrypt from "bcryptjs"
 import jwt from "jsonwebtoken"
+import { prisma } from "@/lib/prisma"
 
 export async function POST(request: NextRequest) {
   try {
     const { email, password } = await request.json()
 
-    // Verificar se usuário já existe (simulação)
-    const existingUser = false // Implementar verificação real
+    if (!email || !password) {
+      return NextResponse.json({ error: "Email e senha são obrigatórios" }, { status: 400 })
+    }
+
+    // Verificar se usuário já existe
+    const existingUser = await prisma.usuario.findUnique({
+      where: { email },
+    })
 
     if (existingUser) {
       return NextResponse.json({ error: "Usuário já existe" }, { status: 400 })
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10)
+    const hashedPassword = await bcrypt.hash(password, 12)
 
-    // Criar usuário (simulação)
-    const newUser = {
-      id: Date.now(),
-      email,
-      password: hashedPassword,
-    }
+    const newUser = await prisma.usuario.create({
+      data: {
+        email,
+        senha_hash: hashedPassword,
+      },
+    })
 
-    const token = jwt.sign({ userId: newUser.id, email: newUser.email }, process.env.JWT_SECRET || "secret", {
+    const token = jwt.sign({ userId: newUser.id, email: newUser.email }, process.env.JWT_SECRET || "fallback-secret", {
       expiresIn: "24h",
     })
 
@@ -31,6 +38,7 @@ export async function POST(request: NextRequest) {
       token,
     })
   } catch (error) {
+    console.error("Register error:", error)
     return NextResponse.json({ error: "Erro interno do servidor" }, { status: 500 })
   }
 }

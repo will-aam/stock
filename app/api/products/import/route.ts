@@ -1,4 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
+import { prisma } from "@/lib/prisma"
+import Papa from "papaparse"
 
 export async function POST(request: NextRequest) {
   try {
@@ -10,45 +12,103 @@ export async function POST(request: NextRequest) {
     }
 
     const text = await file.text()
-    const lines = text.split("\n").filter((line) => line.trim())
-    const errors: string[] = []
-    const products: any[] = []
-    const barCodes: any[] = []
 
-    lines.forEach((line, index) => {
-      const [codigo_de_barras, codigo_produto, descricao] = line.split(";")
+    return new Promise((resolve) => {
+      Papa.parse(text, {
+        header: true,
+        delimiter: ";",
+        complete: async (results) => {
+          const errors: string[] = []
+          const productsToCreate: any[] = []
+          const barCodesToCreate: any[] = []
 
-      if (!codigo_de_barras || !codigo_produto || !descricao) {
-        errors.push(`Linha ${index + 1}: Dados incompletos`)
-        return
-      }
+          // Verificar códigos de barras existentes
+          const existingBarCodes = await prisma.codigoBarras.findMany({
+            select: { codigo_de_barras: true },
+          })
+          const existingBarCodesSet = new Set(existingBarCodes.map((bc) => bc.codigo_de_barras))
 
-      // Verificar duplicações (implementar verificação real no banco)
+          results.data.forEach((row: any, index: number) => {
+            const { codigo_de_barras, codigo_produto, descricao, saldo_estoque } = row
 
-      products.push({
-        id: Date.now() + index,
-        codigo_produto: codigo_produto.trim(),
-        descricao: descricao.trim(),
+            if (!codigo_de_barras || !codigo_produto || !descricao || saldo_estoque === undefined) {
+              errors.push(`Linha ${index + 2}: Dados incompletos`)
+              return
+            }
+
+            if (existingBarCodesSet.has(codigo_de_barras)) {
+              errors.push(`Linha ${index + 2}: Código de barras ${codigo_de_barras} duplicado`)
+              return
+            }
+
+            const saldoNumerico = Number.parseInt(saldo_estoque)
+            if (isNaN(saldoNumerico)) {
+              errors.push(`Linha ${index + 2}: Saldo de estoque deve ser um número`)
+              return
+            }
+
+            productsToCreate.push({
+              codigo_produto,
+              descricao,
+              saldo_estoque: saldoNumerico,
+            })
+
+            barCodesToCreate.push({
+              codigo_de_barras,
+              codigo_produto, // Será relacionado após criar o produto
+            })
+
+            existingBarCodesSet.add(codigo_de_barras)
+          })
+
+          if (errors.length > 0) {
+            resolve(NextResponse.json({ errors }, { status: 400 }))
+            return
+          }
+
+          try {
+            // Criar produtos e códigos de barras em transação
+            const result = await prisma.$transaction(async (tx) => {
+              const createdProducts = []
+              const createdBarCodes = []
+
+              for (let i = 0; i < productsToCreate.length; i++) {
+                const product = await tx.produto.create({
+                  data: productsToCreate[i],
+                })
+                createdProducts.push(product)
+
+                const barCode = await tx.codigoBarras.create({
+                  data: {
+                    codigo_de_barras: barCodesToCreate[i].codigo_de_barras,
+                    produto_id: product.id,
+                  },
+                })
+                createdBarCodes.push(barCode)
+              }
+
+              return { products: createdProducts, barCodes: createdBarCodes }
+            })
+
+            resolve(
+              NextResponse.json({
+                message: `${result.products.length} produtos importados com sucesso`,
+                products: result.products,
+                barCodes: result.barCodes,
+              }),
+            )
+          } catch (dbError) {
+            console.error("Database error:", dbError)
+            resolve(NextResponse.json({ error: "Erro ao salvar no banco de dados" }, { status: 500 }))
+          }
+        },
+        error: (error) => {
+          resolve(NextResponse.json({ error: "Erro ao processar arquivo CSV" }, { status: 400 }))
+        },
       })
-
-      barCodes.push({
-        codigo_de_barras: codigo_de_barras.trim(),
-        produto_id: Date.now() + index,
-      })
-    })
-
-    if (errors.length > 0) {
-      return NextResponse.json({ errors }, { status: 400 })
-    }
-
-    // Salvar no banco de dados (implementar)
-
-    return NextResponse.json({
-      message: `${products.length} produtos importados com sucesso`,
-      products,
-      barCodes,
     })
   } catch (error) {
-    return NextResponse.json({ error: "Erro ao processar arquivo" }, { status: 500 })
+    console.error("Import error:", error)
+    return NextResponse.json({ error: "Erro interno do servidor" }, { status: 500 })
   }
 }

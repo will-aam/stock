@@ -1,31 +1,30 @@
 import { type NextRequest, NextResponse } from "next/server"
 import bcrypt from "bcryptjs"
 import jwt from "jsonwebtoken"
-
-// Simulação de banco de dados
-const users = [
-  {
-    id: 1,
-    email: "admin@sistema.com",
-    password: "$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi", // password
-  },
-]
+import { prisma } from "@/lib/prisma"
 
 export async function POST(request: NextRequest) {
   try {
     const { email, password } = await request.json()
 
-    const user = users.find((u) => u.email === email)
+    if (!email || !password) {
+      return NextResponse.json({ error: "Email e senha são obrigatórios" }, { status: 400 })
+    }
+
+    const user = await prisma.usuario.findUnique({
+      where: { email },
+    })
+
     if (!user) {
       return NextResponse.json({ error: "Usuário não encontrado" }, { status: 401 })
     }
 
-    const isValidPassword = await bcrypt.compare(password, user.password)
+    const isValidPassword = await bcrypt.compare(password, user.senha_hash)
     if (!isValidPassword) {
       return NextResponse.json({ error: "Senha inválida" }, { status: 401 })
     }
 
-    const token = jwt.sign({ userId: user.id, email: user.email }, process.env.JWT_SECRET || "secret", {
+    const token = jwt.sign({ userId: user.id, email: user.email }, process.env.JWT_SECRET || "fallback-secret", {
       expiresIn: "24h",
     })
 
@@ -34,6 +33,7 @@ export async function POST(request: NextRequest) {
       token,
     })
   } catch (error) {
+    console.error("Login error:", error)
     return NextResponse.json({ error: "Erro interno do servidor" }, { status: 500 })
   }
 }
